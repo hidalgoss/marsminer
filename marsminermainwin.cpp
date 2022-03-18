@@ -4,10 +4,12 @@
 #define SUSPECTS    1
 #define DATASET     2
 //#define K_VALUE     7       // Valor que le damos a K.
-#define CLASS_COLUMN    9   // Columna del attributo binario. OJO pq lo ponemos a mano.
+//#define CLASS_COLUMN    6 //9   // Columna del attributo binario. OJO pq lo ponemos a mano.
 #define K_EXTRA_COLS    2   // cols extra aparte de las K cols. 2 para clase y probabilidad.
-
-
+//#define RECALCUL_CENTROID_VALUE 0.001
+//#define ELLIPSE_SIZE    20
+//#define DISTANCE_SCALE  250     // Valor por el que se multiplica las distancias
+#define DISPERSION_FACTOR   0  // Valor de seperación inicio clusters (eje x)
 
 //+-------------------------------------------------------------------------------------
 // Contructor
@@ -22,11 +24,21 @@ MarsMinerMainWin::MarsMinerMainWin(QWidget *parent) :
     MMdataset   = new clsMarsMiner;
     MMdistances = new clsMarsMiner; // Defino K_VALUE columnas mas una.
     MMclass     = new clsMarsMiner; // para guardar la clase de cada distancia de los K.
+    MMCluster   = new clsMarsMiner; // NUEVO para Clustering
+    Soluciones  = NULL;             // NUEVO para Clustering
+    scene=NULL;
 
     K_VALUE = 0;
+    CLASS_COLUMN = 0;               // La cargo una vez cargado alguno de los DS.
+    ELLIPSE_SIZE = 20;              // xdefecto
+    DISTANCE_SCALE = 200;
+    // Recojo como valor inicial, el que aparece en los Widget Dial y Spin.
+    RECALCUL_CENTROID_VALUE = ui->doubleSpinBox_distance->value();
 
     suspectsLoaded  = false;        // se pone a true si se han cargado bien.
     datasetLoaded   = false;
+    clusteringLoaded = false;       // NUEVO para Clustering.
+
     connect(ui->btn_OpenSuspects, SIGNAL(clicked()), this,
             SLOT(OpenFileSuspects()));
     connect(ui->btn_OpenDataset, SIGNAL(clicked()), this,
@@ -53,10 +65,33 @@ MarsMinerMainWin::MarsMinerMainWin(QWidget *parent) :
     connect(ui->actionClear_Datasets, SIGNAL(triggered()), this,
             SLOT(ClearDatasets()));
 
+    // Nuevo connect para Clustering
+    connect(ui->btn_CalculateClustering, SIGNAL(clicked()), this,
+            SLOT(ClusteringCalculLauncher()));
+    connect(ui->btn_OpenCluster, SIGNAL(clicked()), this, SLOT(OpenFileCluster()));
+
+    connect(ui->actionScale_x100, SIGNAL(triggered()), this, SLOT(Scale100()));
+    connect(ui->actionScale_x200, SIGNAL(triggered()), this, SLOT(Scale200()));
+    connect(ui->actionScale_x300, SIGNAL(triggered()), this, SLOT(Scale300()));
+    connect(ui->actionScale_x400, SIGNAL(triggered()), this, SLOT(Scale400()));
+    connect(ui->actionScale_x500, SIGNAL(triggered()), this, SLOT(Scale500()));
+    connect(ui->actionSize_20, SIGNAL(triggered()), this, SLOT(Ellipse20()));
+    connect(ui->actionSize_40, SIGNAL(triggered()), this, SLOT(Ellipse40()));
+    connect(ui->actionSize_60, SIGNAL(triggered()), this, SLOT(Ellipse60()));
+    connect(ui->actionSize_80, SIGNAL(triggered()), this, SLOT(Ellipse80()));
+    connect(ui->actionSize_100, SIGNAL(triggered()), this, SLOT(Ellipse100()));
+
+    // Disal & Double SpinBox
+    // Changing the value of spinbox will change the position of dial
+    connect(ui->doubleSpinBox_distance, SIGNAL(valueChanged(double)),
+            this, SLOT(spinChange(double)));
+    //Changing the position of dial will change the value of the spinbox
+    connect(ui->dial_distance,SIGNAL(valueChanged(int)),
+            this, SLOT(dialChange(int)));
+
     ui->label_CalculateDistances->setText(
                 "Enter a valid K_VALUE and a Pre Process option.");
-    ui->lineEdit_Kvalue->setFocus();
-
+    ui->lineEdit_Kvalue->setFocus();    
 }
 
 
@@ -119,11 +154,15 @@ void MarsMinerMainWin::OpenFileSuspects(void){
             ui->lineEdit_OpenSuspects->setText(
                         "Error loading Suspects DataSet from selected file !!");
             suspectsLoaded = false;
-        }else{
-            //qDebug() << "hola" << fileName << "adios";
+        }else{            
             ui->lineEdit_OpenSuspects->setText(fileName);
             loadDataSetInTableView(MMsuspects, ui->tableView_Suspects);
             suspectsLoaded = true;
+            // Nuevo. Auto Cargo la CLASS_COLUMN que antes hacia a mano.
+            if(CLASS_COLUMN == 0)
+                // Todavía no ha sido establecida. La estbablezco al ultimo att.
+                CLASS_COLUMN = MMsuspects->GetAttributes()->GetAttributesTotal()-1;
+
         }
     }
 }
@@ -176,6 +215,11 @@ void MarsMinerMainWin::OpenFileDataSet(void){
             ui->lineEdit_OpenDataset->setText(fileName);
             loadDataSetInTableView(MMdataset, ui->tableView_Dataset);
             datasetLoaded = true;
+            // Nuevo. Auto Cargo la CLASS_COLUMN que antes hacia a mano.
+            if(CLASS_COLUMN == 0)
+                // Todavía no ha sido establecida. La estbablezco al ultimo att.
+                CLASS_COLUMN = MMsuspects->GetAttributes()->GetAttributesTotal()-1;
+
         }
     }
 }
@@ -203,17 +247,24 @@ void MarsMinerMainWin::loadDataSetInTableView(clsMarsMiner *MM,
             QModelIndex index = model->index(fil, col, QModelIndex());
             QString cad;
             if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
-                       (char *)qPrintable("real")))
+                       (char *)qPrintable("real"))){
                 cad = QString::number( MM->DataSetGetRow(fil)[col], 'f', 8 );
-            else if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
-                            (char *)qPrintable("bin")))
-                cad = QString::number( MM->DataSetGetRow(fil)[col]);
-            else if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
-                            (char *)qPrintable("distance")))
+            }else if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
+                            (char *)qPrintable("bin"))){
+                //cad = QString::number( MM->DataSetGetRow(fil)[col]);
+                if(ui->tabWidget->isTabEnabled(4) == false){
+                    //float a =  MM->DataSetGetRow(fil)[col];
+                    cad = QString::number( MM->DataSetGetRow(fil)[col]);
+                }else{
+                    cad = QString(MM->GetClass(MM->DataSetGetRow(fil)[col]));
+                }
+            }else if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
+                            (char *)qPrintable("distance"))){
                 cad = QString::number( MM->DataSetGetRow(fil)[col], 'f', 8 );
-            else if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
-                            (char *)qPrintable("class")))
+            }else if(!strcmp(MM->GetAttributes()->GetAttribute(col)->acType,
+                            (char *)qPrintable("class"))){
                 cad = QString::number( MM->DataSetGetRow(fil)[col]);
+            }
             model->setData(index,  cad);
         }
     }
@@ -229,7 +280,7 @@ void MarsMinerMainWin::loadDataSetInTableView(clsMarsMiner *MM,
 //+-------------------------------------------------------------------------------------
 void MarsMinerMainWin::loadDistanceInTableView(void){    
     int filSu, filDs, col, iTotalAttributes, iAciertos, iProgress,
-            iTotalRegistersSuspects, iTotalRegistersDataset, iIndividuo;
+            iTotalRegistersSuspects, iTotalRegistersDataset;//, iIndividuo;
     double dDistancia = 0;
     float fMax=0, fMin=0, fProbabilidad=0.0;
 
@@ -289,7 +340,7 @@ void MarsMinerMainWin::loadDistanceInTableView(void){
                 MMclass->DataSetAddRow(&fMyRowClass);
 
                 // Compruebo la distancia de cada suspect con cada individuo el Training DS.
-                for(filDs=0, iIndividuo=0; filDs< iTotalRegistersDataset; filDs++){
+                for(filDs=0/*, iIndividuo=0*/; filDs< iTotalRegistersDataset; filDs++){
                     // Empiezo desde la 2 ya que en 0 y 1 estan ID y Date. Ultimo Class tampoco.
                     for(col=2, dDistancia=0; col < (iTotalAttributes - 1); col++){
                         // Cogemos el máximo Max de los dos datasets.
@@ -356,7 +407,7 @@ int MarsMinerMainWin::feasibleDistance(clsMarsMiner *MM, clsMarsMiner *MMcls,
                                        int iIndividuo, int iClass, float fDistance){
     // Ultimo attribute del dataset de distances, es para indicar si es o no peligroso.
     for(int col=0; col < (MM->GetAttributes()->GetAttributesTotal() - K_EXTRA_COLS); col++){
-        //qDebug() << " -- " << MM->DataSetGetRow(iIndividuo)[col] << endl;
+        //qDebug() << " -- " << MM->DataSetGetRow(iIndividuo)[col] << Qt::endl;;
         if((fDistance < MM->DataSetGetRow(iIndividuo)[col] ||
                 MM->DataSetGetRow(iIndividuo)[col] == -1) && fDistance != 0){
             insertaDistanceAndClass(MM, MMcls, iClass, iIndividuo, col, fDistance);
@@ -450,7 +501,7 @@ double MarsMinerMainWin::distanceNormal(float fX, float fY, float fMax, float fM
     if(fDenominador != 0)
         return qPow((fX - fY)/fDenominador, 2);
     else
-        return qPow((fX - fY), 2);
+        return 0; //return qPow((fX - fY), 2);
 }
 
 
@@ -587,6 +638,10 @@ void MarsMinerMainWin::ClearDatasets(void){
     if(ui->tableView_Class->model())
         ui->tableView_Class->model()->removeRows(0,
             ui->tableView_Class->model()->rowCount());
+    // NUEVO Clustering
+    if(ui->tableView_Cluster->model())
+        ui->tableView_Cluster->model()->removeRows(0,
+            ui->tableView_Cluster->model()->rowCount());
 
     // Visualizo ls QTableView ya vacios.
     ui->tableView_Suspects->repaint();
@@ -594,6 +649,8 @@ void MarsMinerMainWin::ClearDatasets(void){
     ui->tableView_Distances->repaint();
     ui->tableView_DistancesRanges->repaint();
     ui->tableView_Class->repaint();
+    // NEUVO Clustering
+    ui->tableView_Cluster->repaint();
 
     // Elimino los objetos utilizados.
     if(MMsuspects != NULL)
@@ -604,16 +661,25 @@ void MarsMinerMainWin::ClearDatasets(void){
         delete MMdistances;
     if(MMclass != NULL)
         delete MMclass;
+    // NEUVO Clustering
+    if(MMCluster != NULL)
+        delete MMCluster;
 
     // Los inicializo a NULL para pedir, si es el caso, de nuevo el objeto.
     MMsuspects  = NULL;
     MMdataset   = NULL;
     MMdistances = NULL;
     MMclass     = NULL;
+    // NEUVO Clustering
+    MMCluster   = NULL;
+
     // Le indico a loadDistanceInTableView() que los DS no estan cargados.
     suspectsLoaded  = false;
     datasetLoaded   = false;
-    K_VALUE = 0;
+    // NEUVO Clustering
+    clusteringLoaded    = false;
+
+
 
     // inicializamos resto de elementos.
     ui->lineEdit_Probabilidad->clear();
@@ -622,13 +688,59 @@ void MarsMinerMainWin::ClearDatasets(void){
     ui->label_CalculateDistances->setText("Datasets successfully cleared.");
     ui->progressBar_distances->setValue(0);
     ui->lineEdit_Kvalue->clear();
-    ui->tabWidget->setCurrentIndex(2);
-    ui->lineEdit_Kvalue->setFocus();
+    //ui->tabWidget->setCurrentIndex(2);
+    //ui->lineEdit_Kvalue->setFocus();
+    // NEUVO Clustering
+    ui->progressBar_clustering->setValue(0);
+    ui->lineEdit_KvalueCluster->clear();
+    ui->lineEdit_OpenCluster->clear();
+    ui->label_CalculateClustering->setText("Datasets successfully cleared.");
+    ui->tabWidget->setCurrentIndex(4);
+    ui->lineEdit_KvalueCluster->setFocus();
+    ui->tabWidget_Clustering->setCurrentIndex(0);
+
+    // Limpio los Graphic View. Lo hago eliminando sus items.
+    if(ui->graphicsView_Cluster1->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster1->scene()->items());
+    if(ui->graphicsView_Cluster2->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster2->scene()->items());
+    if(ui->graphicsView_Cluster3->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster3->scene()->items());
+    if(ui->graphicsView_Cluster4->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster4->scene()->items());
+    if(ui->graphicsView_Cluster5->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster5->scene()->items());
+    if(ui->graphicsView_Cluster6->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster6->scene()->items());
+    if(ui->graphicsView_Cluster7->scene() != NULL)
+        qDeleteAll(ui->graphicsView_Cluster7->scene()->items());
+
+    // Elimino array de clusters con las soluciones
+    deleteSoluciones();
+
+    // Inicializo K a 0
+    K_VALUE = 0;
 }
 
 
 
+void MarsMinerMainWin::deleteSoluciones(void) {
+    Cluster **clusters;
 
+    if(Soluciones){
+    for(int i=0; i<K_VALUE; i++){
+        clusters = Soluciones[i];
+        if(clusters != NULL){
+            for(int j=0; j<=i; j++){
+                if(clusters[j] != NULL){
+                    delete clusters[j];
+                }
+            }
+        }
+    }
+    Soluciones = NULL;
+    }
+}
 
 
 
@@ -683,7 +795,7 @@ void MarsMinerMainWin::BacktrackingMode(void){
 // Gestiona la funcion de distancia invocada por el usuario.
 //+-------------------------------------------------------------------------------------
 void MarsMinerMainWin::DistancesCalculLauncher(void){
-    int col, iTotalAttributes, iTotalRegistersSuspects, iTotalRegistersDataset;
+    int col, iTotalAttributes, iTotalRegistersSuspects;//, iTotalRegistersDataset;
     float fProbabilidad=0.0;
 
     // selecciono el tab de distances.
@@ -698,7 +810,7 @@ void MarsMinerMainWin::DistancesCalculLauncher(void){
     }else{
         iTotalAttributes        = MMsuspects->GetAttributes()->GetAttributesTotal();
         iTotalRegistersSuspects = MMsuspects->GetDataSetTotalRegisters();
-        iTotalRegistersDataset  = MMdataset->GetDataSetTotalRegisters();
+        //iTotalRegistersDataset  = MMdataset->GetDataSetTotalRegisters();
 
         // Recojo el K_VALUE, en caso de que lo hayan introducido.
         int iKtest =  ui->lineEdit_Kvalue->text().toInt();
@@ -897,12 +1009,7 @@ float MarsMinerMainWin::GreedyIterativeAuto(int *piFijados, int iTotalAttributes
                 InicializaArray(piMask, iTotalAttributes, 0);
                 // Indico en aiMask los attributes sobre los que calcular la dist.
                 piMask[iAtt_Mask] = 1;
-                ArrayOr(piFijados, piMask, iTotalAttributes);
-                // TEST
-                ////qDebug() << "piMask: ";
-                ////for(int i=0; i<iTotalAttributes; i++)
-                ////    qDebug() << piMask[i];
-                // FIN_TEST
+                ArrayOr(piFijados, piMask, iTotalAttributes);                
 
                 // aiMask tiene a 1 las posic de los attributes para la f(x) de
                 // distancia. Calculo la Prob Total de Aciertos para esta comb de att.
@@ -946,8 +1053,8 @@ float MarsMinerMainWin::GreedyIterativeAuto(int *piFijados, int iTotalAttributes
 float MarsMinerMainWin::K_NN_WithMask(int *piFijados, clsMarsMiner *MMdst,
                                       clsMarsMiner *MMcls){
 
-    int filSu, filDs, col, iTotalAttributes, iAciertos, iProgress,
-            iTotalRegistersSuspects, iTotalRegistersDataset, iIndividuo;
+    int filSu, filDs, col, iTotalAttributes, iAciertos,// iProgress,
+            iTotalRegistersSuspects, iTotalRegistersDataset;//, iIndividuo;
     double dDistancia = 0;
     float fMax=0, fMin=0, fProbabilidad=0.0;
 
@@ -960,7 +1067,7 @@ float MarsMinerMainWin::K_NN_WithMask(int *piFijados, clsMarsMiner *MMdst,
     iTotalRegistersSuspects = MMsuspects->GetDataSetTotalRegisters();
     iTotalRegistersDataset  = MMdataset->GetDataSetTotalRegisters();
 
-    for(filSu=0, iAciertos=0, iProgress = 1; filSu< iTotalRegistersSuspects;
+    for(filSu=0, iAciertos=0/*, iProgress = 1*/; filSu< iTotalRegistersSuspects;
         filSu++){ //coemento pq progreso no se implementa aki.// , iProgress++){
 
         // Agrego una nueva Row para el sospechoso # filSu.
@@ -974,7 +1081,7 @@ float MarsMinerMainWin::K_NN_WithMask(int *piFijados, clsMarsMiner *MMdst,
         MMcls->DataSetAddRow(&fMyRowClass);
 
         // Compruebo la distancia de cada suspect con cada individuo del Training DS.
-        for(filDs=0, iIndividuo=0; filDs< iTotalRegistersDataset; filDs++){
+        for(filDs=0/*, iIndividuo=0*/; filDs< iTotalRegistersDataset; filDs++){
             // Empiezo desde la 2 ya que en 0 y 1 estan ID y Date. Ultimo Class tampoco.
             for(col=0, dDistancia=0; col < iTotalAttributes; col++){
 
@@ -1031,13 +1138,12 @@ float MarsMinerMainWin::K_NN_WithMask(int *piFijados, clsMarsMiner *MMdst,
 // Si bBar == true muestra la barra de progreso en funcion del numero de suspects.
 //+-------------------------------------------------------------------------------------
 float MarsMinerMainWin::K_NN_WithMaskAuto(int *piFijados, bool bBar){
-
-    int filSu, filDs, col, iTotalAttributes, iAciertos, iProgress,
-            iTotalRegistersSuspects, iTotalRegistersDataset, iIndividuo;
+    int filSu, filDs, col, iTotalAttributes, iAciertos,// iProgress,
+            iTotalRegistersSuspects, iTotalRegistersDataset;//, iIndividuo;
     double dDistancia = 0;
     float fMax=0, fMin=0, fProbabilidad=0.0;
-
     bool vacio = true;
+
     for(col=0; col < MMsuspects->GetAttributes()->GetAttributesTotal(); col++){
         if(piFijados[col] == 1)
             vacio = false;
@@ -1057,7 +1163,7 @@ float MarsMinerMainWin::K_NN_WithMaskAuto(int *piFijados, bool bBar){
     iTotalRegistersSuspects = MMsuspects->GetDataSetTotalRegisters();
     iTotalRegistersDataset  = MMdataset->GetDataSetTotalRegisters();
 
-    for(filSu=0, iAciertos=0, iProgress = 1; filSu< iTotalRegistersSuspects;
+    for(filSu=0, iAciertos=0/*, iProgress = 1*/; filSu< iTotalRegistersSuspects;
         filSu++){ //coemento pq progreso no se implementa aki.// , iProgress++){
 
         if(bBar)
@@ -1075,7 +1181,7 @@ float MarsMinerMainWin::K_NN_WithMaskAuto(int *piFijados, bool bBar){
         MMcls.DataSetAddRow(&fMyRowClass);
 
         // Compruebo la distancia de cada suspect con cada individuo del Training DS.
-        for(filDs=0, iIndividuo=0; filDs< iTotalRegistersDataset; filDs++){
+        for(filDs=0/*, iIndividuo=0*/; filDs< iTotalRegistersDataset; filDs++){
             // Empiezo desde la 2 ya que en 0 y 1 estan ID y Date. Ultimo Class tampoco.
             for(col=0, dDistancia=0; col < iTotalAttributes; col++){
 
@@ -1154,11 +1260,11 @@ float MarsMinerMainWin::BckBestProb(int *piFijados){
             aiMask[iAtt_Mask] = 1;
             ArrayOr(piFijados, aiMask, iTotalAttributes);
 
-            // TEST
+            // DEBUG
             //qDebug() << "piMask: ";
             //for(int i=0; i<iTotalAttributes; i++)
             //    qDebug() << aiMask[i];
-            // FIN_TEST
+            // FIN_DEBUG
 
             // Recojo mekor Prob del hijo aiMask.
             fPbck = BckBestProb(aiMask);
@@ -1192,8 +1298,6 @@ void MarsMinerMainWin::CopyArrays(int *piOrigen, int *piDestino, int iTotalAttri
 }
 
 
-
-
 //+-------------------------------------------------------------------------------------
 // Inicializa un array de enteros de iNumElementos al valor iValue.
 //+-------------------------------------------------------------------------------------
@@ -1201,9 +1305,6 @@ void MarsMinerMainWin::InicializaArray(int *piArray, int iNumElementos, int iVal
     for(int i=0; i < iNumElementos; i++)
         piArray[i] = iValue;
 }
-
-
-
 
 
 //+-------------------------------------------------------------------------------------
@@ -1240,7 +1341,7 @@ void MarsMinerMainWin::ArrayOr(int *piOrig, int *piDestino, int iNumElementos){
 // TEST
 //+-------------------------------------------------------------------------------------
 void MarsMinerMainWin::loadDistanceInTableViewTEST(void){
-    int col, iTotalAttributes, iTotalRegistersSuspects, iTotalRegistersDataset;
+    int col/*, iTotalAttributes*/, iTotalRegistersSuspects;//, iTotalRegistersDataset;
     float fProbabilidad=0.0;
 
     ui->tabWidget->setCurrentIndex(2);
@@ -1249,9 +1350,9 @@ void MarsMinerMainWin::loadDistanceInTableViewTEST(void){
         // Mesnsaje conforme no se puede realizar el calculo hasta tener los datasets.
         ui->label_CalculateDistances->setText("First, you must load Suspects and Training datasets.");
     }else{
-        iTotalAttributes        = MMsuspects->GetAttributes()->GetAttributesTotal();
+        //iTotalAttributes        = MMsuspects->GetAttributes()->GetAttributesTotal();
         iTotalRegistersSuspects = MMsuspects->GetDataSetTotalRegisters();
-        iTotalRegistersDataset  = MMdataset->GetDataSetTotalRegisters();
+        //iTotalRegistersDataset  = MMdataset->GetDataSetTotalRegisters();
 
         // Recojo el K_VALUE, en caso de que lo hayan introducido.
         int iKtest =  ui->lineEdit_Kvalue->text().toInt();
@@ -1298,6 +1399,703 @@ void MarsMinerMainWin::loadDistanceInTableViewTEST(void){
 
 
 
+///////////////////////////////////////////////////////////////////////////////////////////
+// Clustering
+///////////////////////////////////////////////////////////////////////////////////////////
+
+//+-------------------------------------------------------------------------------------
+// Botón para la carga del DataSet a Clusterizar.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::OpenFileCluster(void) {
+    // Recojo el K_VALUE, en caso de que lo hayan introducido.
+    int iKtest =  ui->lineEdit_KvalueCluster->text().toInt();
+    if(iKtest > 0)
+        K_VALUE = iKtest;
+    else
+        K_VALUE = 0;
+
+    if(K_VALUE == 0){
+        ui->tabWidget_Clustering->setCurrentIndex(0);
+        ui->label_CalculateClustering->setText(
+                    "First, you must select a valid K_VALUE.");
+    }else{
+        // Abro dialogo de seleccion de archivo.
+        QString fileName = QFileDialog::getOpenFileName(this,
+            tr("Open arff File"), "C:/", tr("arff or txt Files (*.arff *.txt)"));
+
+        // Me aseguro de tener creado los objetos, antes de cargarlos.
+        if(MMCluster == NULL)
+            MMCluster  = new clsMarsMiner;
+
+        // NO IMPLEMENTADO PARA Clustering. Solo para K-NN, de momento.
+        // establezco la propiedad de pre-proceso, si lo ha escogido en combobox.
+        /*if(ui->comboBox_Preprocess->currentIndex() == 0)
+            MMCluster->SetPreProceso(false);
+        else
+            MMCluster->SetPreProceso(true);*/
+
+        ui->tabWidget_Clustering->setCurrentIndex(0);
+        if(MMCluster->BuildDataset((char *)qPrintable(fileName)) == false){
+            ui->lineEdit_OpenCluster->setText(
+                        "Error loading DataSet to Cluster from selected file !!");
+            clusteringLoaded = false;
+        }else{
+            ui->lineEdit_OpenCluster->setText(fileName);
+            loadDataSetInTableView(MMCluster, ui->tableView_Cluster);
+            clusteringLoaded = true;
+            // Nuevo. Auto Cargo la CLASS_COLUMN que antes hacia a mano.
+            if(CLASS_COLUMN == 0)
+                // Todavía no ha sido establecida. La estbablezco al ultimo att.
+                CLASS_COLUMN = MMsuspects->GetAttributes()->GetAttributesTotal()-1;
+        }
+    }
+}
+
+
+//+-------------------------------------------------------------------------------------
+// Botón Calcula Clutstering.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::ClusteringCalculLauncher(void) {
+
+    //if(ui->lineEdit_KvalueCluster->text() )
+    // Recojo el K_VALUE, en caso de que lo hayan introducido.
+    int iKtest =  ui->lineEdit_KvalueCluster->text().toInt();
+    if(iKtest > 0 && iKtest < 8)
+        K_VALUE = iKtest;
+    else
+        K_VALUE = 0;
+
+    if(K_VALUE == 0){
+        //ui->tabWidget->setCurrentIndex(2);
+        ui->label_CalculateClustering->setText(
+                    "First, you must select a valid K_VALUE.");
+    }else{
+        if(clusteringLoaded == false){
+            // Msg: NO se puede realizar el calculo hasta tener el dataset.
+            ui->label_CalculateClustering->setText(
+                        "First, you must load dataset to Cluster.");
+        }else{
+            // Inicio clustering para la K y dataset especificados.
+            KMeans(K_VALUE);
+            DrawSolutions();
+            ui->tabWidget_Clustering->setCurrentIndex(K_VALUE);
+
+        }// Fin if(clusteringLoadeD)
+    }// Fin if(K_VALUE)
+}// ClusteringCalculLauncher
+
+
+
+
+//+-------------------------------------------------------------------------------------
+// Pre: Kmax debe estar entre 1 y 7 (ambos inclusive, 7de momento).
+// Objetivo.
+// Se ha de llegar a la estabilizacion de los centroids y valorar el porcentage de
+// individuos que hay de una clase y de otra en cada centroid.
+// P.ej. c1 60% Red, 40% Purple => Prob de agrupabilidad por clase 60/40.
+//+-------------------------------------------------------------------------------------
+Cluster ***MarsMinerMainWin::KMeans(int Kmax) {
+    bool centroids_Estabilizados;
+    float dist_MIN = 1000;                 // Valor que siempre sera superior la 1a vez.
+    int cluster_MIN = -1;
+    float fDistance = -1;
+    int currentBarValue=0;
+
+    int K=1;                // Inicio con K=1 clusters
+    // Declaro un array de pointers a Clsuter para guardar las Soluciones.
+    //Soluciones = (Cluster **)malloc(K_VALUE * sizeof(Cluster*));
+    Soluciones = new Cluster**[Kmax];
+    Cluster **clusters;// = new Cluster*[K];
+    // establezco lo que será el 100% de la barra de progreso.
+    ui->progressBar_clustering->setMaximum(MMCluster->GetDataSetTotalRegisters()*Kmax);
+    while(K <= Kmax){       // K es la actual.
+        // Calculo solucion cluster K.
+        // La solucion K tiene K clusters que declaro con estos tamaños.
+        clusters = new Cluster*[K];
+        qDebug() << "AttributesTotal" << MMCluster->GetAttributes()->GetAttributesTotal() << Qt::endl;;
+        // Creo los K cluster.
+        for(int c=0; c<K; c++)
+            clusters[c] = new Cluster(
+                        MMCluster->GetAttributes()->GetAttributesTotal() - 1, // pq NO HAY QUE TENER EN CUENTA LA CLASE en el cluster
+                        MMCluster->GetDataSetTotalRegisters(),
+                        MMCluster->GetAttributes());
+        // Inic centroid de cada cluster a valores random dentro del rango de su atributo.
+        InicializaCentroids(K, clusters);
+        qDebug() << "AttributesTotal Cluster" << clusters[K-1]->getTotalAttributes() << Qt::endl;;
+        centroids_Estabilizados = false;
+        while(!centroids_Estabilizados){
+            for(int individuo=0; individuo < MMCluster->GetDataSetTotalRegisters();
+                individuo++ ){
+                // Para cada individuo del DataSet a clusterizar...
+                dist_MIN = 1000;                    // Valor que siempre sera superior la 1a vez.
+                cluster_MIN = -1;                   // Valor inicial que cambiará la 1a vez.
+                for(int grupo=0; grupo < K; grupo++){
+                    // Compruebo distancia de individuo con centroid de cada grupo/cluster.
+                    fDistance = DistanceBetweenRows(MMCluster->DataSetGetRow(individuo),
+                                                    clusters[grupo]->getCentroid(), 0,
+                                                    clusters[grupo]->getTotalAttributes(), // - 1,
+                                                    MMCluster->GetAttributes());
+                    // Asigno al usuario al cluster con centroid que hace que sea mínima.
+                    if(fDistance <= dist_MIN){
+                        // Guardo nueva dist_MIN y el cluster con el que se ha dado.
+                        dist_MIN = fDistance;
+                        cluster_MIN = grupo;
+                    }
+                }// Ahora ya tengo distancia mínima y cluster asociado. Le agrego el individuo.
+                clusters[cluster_MIN]->addIndividuoAndDistance(individuo, dist_MIN);
+                clusters[cluster_MIN]->addToAvg(MMCluster->DataSetGetRow(individuo));
+                // Gestiono barra de progreso.
+                if(currentBarValue < individuo*K){
+                    ui->progressBar_clustering->setValue(currentBarValue++);
+                }
+            }// Fin DS
+            // Recalculo centroids y actualizo en la misma f(x) si hay alguno no estabilizado.
+            centroids_Estabilizados = recalculaCentroids(K, clusters, MMCluster->GetAttributes());
+            if(!centroids_Estabilizados){
+                // limipo los K clusters
+                for(int c=0; c<K; c++)
+                    clusters[c]->clearCluster();
+            }
+        }// Fin while(!centroids)
+        // Gestiono barra de progreso.
+        if(currentBarValue < MMCluster->GetDataSetTotalRegisters()*K){
+            currentBarValue = MMCluster->GetDataSetTotalRegisters()*K;
+            ui->progressBar_clustering->setValue(currentBarValue);
+        }
+        // Guardo la solución actual numero K.
+        Soluciones[K-1] = clusters;
+        K += 1;
+    }
+    ui->progressBar_clustering->setValue(MMCluster->GetDataSetTotalRegisters()*Kmax);
+    // Devuelvo las soluciones calculadas.
+    return Soluciones;
+}
+
+
+
+
+
+//+-------------------------------------------------------------------------------------
+// Inicializa los centroid de cada cluster del array de cluster que recibe.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::InicializaCentroids(int numCentroids, Cluster **clusters) {
+    for(int i=0; i<numCentroids; i++)
+        clusters[i]->initCentroid();
+}
+
+
+
+//+-------------------------------------------------------------------------------------
+// Recibe las rows sobre las que aplicar la funcion de distancia, los indices de las
+// columnas de start y end de los atributos, los atributos en los que se encuentran los
+// valores Max y Min que tiene cada atributo, de manera que se pueda normalizar.
+//+-------------------------------------------------------------------------------------
+float MarsMinerMainWin::DistanceBetweenRows(float *rowA, float *rowB, int start, int end,
+                                            clsAttribute *atts) {
+    float fMax, fMin, fDistancia=0;
+    //F(x) Distancia COPIADA DE K-NN
+    double dDistancia=0;
+    for(int col=start; col < end; col++){
+        fMax = atts->GetAttributeMaxValue(col);
+        fMin = atts->GetAttributeMinValue(col);
+        // Calculo de la distancia entre individuos, para el attribute #col.
+        if(!strcmp(atts->GetAttribute(col)->acType,
+                 (char *)qPrintable("real"))){
+          dDistancia += distanceNormal(rowA[col], rowB[col], fMax, fMin);
+        }
+    }// Fin cols.
+    // Calculo raiz.
+    fDistancia = (float)qSqrt(dDistancia);
+    return fDistancia;
+    //FIN   F(x) Distancia COPIADA DE K-NN
+}// Fin DistanceBetweenRows()
+
+
+
+
+//+-------------------------------------------------------------------------------------
+// Devuelve false si el centroid no está estabilizado y ha sido necesario recalcular.
+// Al recalcular, se guarda la media de los individuos del cluster como centroid.
+//+-------------------------------------------------------------------------------------
+bool MarsMinerMainWin::recalculaCentroids(int K, Cluster **clusters, clsAttribute *attts) {
+    //float *fAverage = NULL;
+    float *fCurrentCentroid = NULL;
+    float fDistance;
+    float **fMedias = new float*[K];
+    bool centroidEstabilizado = true;
+
+    for(int i=0; i<K; i++){
+        // Calculo y recojo la media del cluster i.
+        //fAverage = clusters[i]->getAvg();
+        fMedias[i] = clusters[i]->getAvg();
+        // Recojo valor del centroid del cluster i.
+        fCurrentCentroid = clusters[i]->getCentroid();
+        // Calculo distancia entre la media y el centroid.
+        fDistance = DistanceBetweenRows(fMedias[i],
+                                        fCurrentCentroid,
+                                        0,
+                                        clusters[i]->getTotalAttributes(),
+                                        attts);
+        qDebug() << "fDistance " << fDistance << "RECLA CENTROID " << RECALCUL_CENTROID_VALUE << Qt::endl;;
+        if(fDistance > RECALCUL_CENTROID_VALUE){
+            // Si la distancia entre ambos supera la constante establecida, recalculamos.
+            centroidEstabilizado = false;
+        }
+        ShowCentroid(clusters[i]->getCentroid(), clusters[i]->getTotalAttributes());
+    }
+    if(!centroidEstabilizado){
+        // Para recalcular, le asigno las medias de cada cluster a su centroid.
+        for(int i=0; i<K; i++){
+            clusters[i]->setCentroid(fMedias[i]);
+            // incremento el numero de recalculos para este cluster.
+            clusters[i]->incrRecalculalos();
+            // TEST
+            ShowCentroid(clusters[i]->getCentroid(), clusters[i]->getTotalAttributes());
+        }
+    }
+    return centroidEstabilizado;
+}
+
+
+
+//+-------------------------------------------------------------------------------------
+// Funcion de debug para visualizar el contenido del centroid.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::ShowCentroid(float *centroid, int numAtts) {
+    for(int i=0; i<numAtts; i++)
+        qDebug() << "att " << i << ": " << centroid[i] << Qt::endl;;
+}
+
+
+
+//+-------------------------------------------------------------------------------------
+// Carga el array de clusters 'Soluciones' en los graphic view. Utiliza tantos Graphic
+// View como soluciones tenga almacenadas.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::DrawSolutions(void) {
+    Cluster **cluster = NULL;
+    qreal x, y;
+    QGraphicsView *m_graphView = NULL;
+    QPen *pRed   = new  QPen(Qt::red, 0.5, Qt::SolidLine);
+    QPen *pPurple = new  QPen(Qt::blue , 0.5, Qt::SolidLine);
+    QPen *p = NULL;
+    QFont clusterTextFont("Courier", 18, QFont::Bold, true);
+    QString message;
+    int clase=0, numReds, numPurples;
+    // A los zeros les llamo reds, pero podría darse el caso de que no fuese asi.
+
+    if(Soluciones == NULL)
+        return;
+
+    qDebug() << "KVALUE " << K_VALUE << Qt::endl;;
+    for(int i=0; i<K_VALUE; i++){
+        cluster = Soluciones[i];
+        scene = new QGraphicsScene;
+        if(i == 0)
+            m_graphView = ui->graphicsView_Cluster1;
+        else if(i == 1)
+            m_graphView = ui->graphicsView_Cluster2;
+        else if(i == 2)
+            m_graphView = ui->graphicsView_Cluster3;
+        else if(i == 3)
+            m_graphView = ui->graphicsView_Cluster4;
+        else if(i == 4)
+            m_graphView = ui->graphicsView_Cluster5;
+        else if(i == 5)
+            m_graphView = ui->graphicsView_Cluster6;
+        else if(i == 6)
+            m_graphView = ui->graphicsView_Cluster7;
+
+        m_graphView->setScene(scene);
+
+
+        for(int c=0; c<=i; c++){
+            // Pinto linea indica inicio metrica distancia para cluster c.
+            y = m_graphView->height()-(ELLIPSE_SIZE*c*1.5);
+            // Printo texto con nombre del cluster
+            message = QString("cluster %1").arg(c);
+            QGraphicsTextItem *myText = new QGraphicsTextItem(message);
+            myText->setPos(DISPERSION_FACTOR*c - 150, y - 5);
+            myText->setFont(clusterTextFont);
+            // Agrego el texto al grafico
+            scene->addItem(myText);
+            scene->addLine(DISPERSION_FACTOR*c, y, DISPERSION_FACTOR*c,
+                           y+ELLIPSE_SIZE,
+                           QPen(QBrush(Qt::green),5));
+
+            numReds = numPurples = 0;
+            for(int ind=0; ind<cluster[c]->getTotalIndividuos(); ind++){
+                x = cluster[c]->getDistance(ind)*DISTANCE_SCALE +
+                        DISPERSION_FACTOR*c;
+                // Recojo la clase.
+                clase = MMCluster->DataSetGetRow(cluster[c]->getIndividuo(ind))
+                        [cluster[c]->getTotalAttributes()]; //-1];
+                qDebug() << "clase " << clase << "texto " <<
+                            MMCluster->GetClass(clase) << Qt::endl;;
+                //if(!strcmp(MMCluster->GetClass(clase), "Red")){
+                if(clase == 1){
+                    p=pRed;
+                    numReds++;
+                }else if(clase == 0){
+                    p=pPurple;
+                    numPurples++;
+                }
+                scene->addEllipse(x, y, ELLIPSE_SIZE, ELLIPSE_SIZE,
+                                  *p,                   //QPen(Qt::blue, 0.25,Qt::SolidLine),
+                                  QBrush(Qt::NoBrush)); //(Qt::black));
+            }
+            qDebug() << "inds: " << cluster[c]->getTotalIndividuos() << "reds "
+                     << numReds << "purples " << numPurples << Qt::endl;;
+            LoadSolutionData(i+1, c, numReds, numPurples, cluster[c]->getRecalculos());
+        }
+        m_graphView->show();
+    }
+}
+
+
+
+//+-------------------------------------------------------------------------------------
+// Función auxiliar a DrawSolutions() que carga los datos en los campos de la derecha
+// habilitados en cada tab asociados a los dibujos del Graphic View adjunto.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::LoadSolutionData(int knum, int cluster,
+                                        int reds, int purples, int recalculos) {
+
+    //ui->label_K1_class0->setStyleSheet("QLineEdit{background: red;}");
+
+    float f = getRate(reds, purples);
+    qDebug() << "f " << f << Qt::endl;;
+    if(knum == 1){
+        // K==1 graphic view objects
+        ui->label_K1_class0->setText(MMCluster->GetClass(0));
+        ui->label_K1_class1->setText(MMCluster->GetClass(1));
+        ui->lineEdit_K1_class0->setText(QString("%1").arg(purples));
+        ui->lineEdit_K1_class1->setText(QString("%1").arg(reds));
+        ui->lineEdit_K1_rate->setText(QString::number(f, 'f', 2)); //<< QString::number(f, 'g', 2));
+        ui->lineEdit_K1_recalculate->setText(QString::number(recalculos));
+    }else if(knum == 2) {
+        // K==2 graphic view objects
+        if(cluster == 0){
+            ui->label_K2_class0_c0->setText(MMCluster->GetClass(0));
+            ui->label_K2_class1_c0->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K2_class0_c0->setText(QString("%1").arg(purples));
+            ui->lineEdit_K2_class1_c0->setText(QString("%1").arg(reds));
+            ui->lineEdit_K2_rate_c0->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K2_recalculate_c0->setText(QString::number(recalculos));
+        }else if(cluster == 1) {
+            ui->label_K2_class0_c1->setText(MMCluster->GetClass(0));
+            ui->label_K2_class1_c1->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K2_class0_c1->setText(QString("%1").arg(purples));
+            ui->lineEdit_K2_class1_c1->setText(QString("%1").arg(reds));
+            ui->lineEdit_K2_rate_c1->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K2_recalculate_c1->setText(QString::number(recalculos));
+        }
+
+    }else if(knum == 3) {
+        // K==3 graphic view objects
+        if(cluster == 0){
+            ui->label_K3_class0_c0->setText(MMCluster->GetClass(0));
+            ui->label_K3_class1_c0->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K3_class0_c0->setText(QString("%1").arg(purples));
+            ui->lineEdit_K3_class1_c0->setText(QString("%1").arg(reds));
+            ui->lineEdit_K3_rate_c0->setText(QString::number(f, 'f', 2)); // <<QString::number(f, 'g', 2));
+            ui->lineEdit_K3_recalculate_c0->setText(QString::number(recalculos));
+
+        }else if(cluster == 1) {
+            ui->label_K3_class0_c1->setText(MMCluster->GetClass(0));
+            ui->label_K3_class1_c1->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K3_class0_c1->setText(QString("%1").arg(purples));
+            ui->lineEdit_K3_class1_c1->setText(QString("%1").arg(reds));
+            ui->lineEdit_K3_rate_c1->setText(QString::number(f, 'f', 2)); //<<QString::number(f, 'g', 2));
+            ui->lineEdit_K3_recalculate_c1->setText(QString::number(recalculos));
+
+        }else if(cluster == 2) {
+            ui->label_K3_class0_c2->setText(MMCluster->GetClass(0));
+            ui->label_K3_class1_c2->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K3_class0_c2->setText(QString("%1").arg(purples));
+            ui->lineEdit_K3_class1_c2->setText(QString("%1").arg(reds));
+            ui->lineEdit_K3_rate_c2->setText(QString::number(f, 'f', 2)); // <<QString::number(f, 'g', 2));
+            ui->lineEdit_K3_recalculate_c2->setText(QString::number(recalculos));
+
+        }
+
+    }else if(knum == 4) {
+        // K==3 graphic view objects
+        if(cluster == 0){
+            ui->label_K4_class0_c0->setText(MMCluster->GetClass(0));
+            ui->label_K4_class1_c0->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K4_class0_c0->setText(QString("%1").arg(purples));
+            ui->lineEdit_K4_class1_c0->setText(QString("%1").arg(reds));
+            ui->lineEdit_K4_rate_c0->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K4_recalculate_c0->setText(QString::number(recalculos));
+
+        }else if(cluster == 1) {
+            ui->label_K4_class0_c1->setText(MMCluster->GetClass(0));
+            ui->label_K4_class1_c1->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K4_class0_c1->setText(QString("%1").arg(purples));
+            ui->lineEdit_K4_class1_c1->setText(QString("%1").arg(reds));
+            ui->lineEdit_K4_rate_c1->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K4_recalculate_c1->setText(QString::number(recalculos));
+
+        }else if(cluster == 2) {
+            ui->label_K4_class0_c2->setText(MMCluster->GetClass(0));
+            ui->label_K4_class1_c2->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K4_class0_c2->setText(QString("%1").arg(purples));
+            ui->lineEdit_K4_class1_c2->setText(QString("%1").arg(reds));
+            ui->lineEdit_K4_rate_c2->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K4_recalculate_c2->setText(QString::number(recalculos));
+
+        }else if(cluster == 3) {
+            ui->label_K4_class0_c3->setText(MMCluster->GetClass(0));
+            ui->label_K4_class1_c3->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K4_class0_c3->setText(QString("%1").arg(purples));
+            ui->lineEdit_K4_class1_c3->setText(QString("%1").arg(reds));
+            ui->lineEdit_K4_rate_c3->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K4_recalculate_c3->setText(QString::number(recalculos));
+
+        }
+    }else if(knum == 5) {
+        // K==3 graphic view objects
+        if(cluster == 0){
+            ui->label_K5_class0_c0->setText(MMCluster->GetClass(0));
+            ui->label_K5_class1_c0->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K5_class0_c0->setText(QString("%1").arg(purples));
+            ui->lineEdit_K5_class1_c0->setText(QString("%1").arg(reds));
+            ui->lineEdit_K5_rate_c0->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K5_recalculate_c0->setText(QString::number(recalculos));
+
+        }else if(cluster == 1) {
+            ui->label_K5_class0_c1->setText(MMCluster->GetClass(0));
+            ui->label_K5_class1_c1->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K5_class0_c1->setText(QString("%1").arg(purples));
+            ui->lineEdit_K5_class1_c1->setText(QString("%1").arg(reds));
+            ui->lineEdit_K5_rate_c1->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K5_recalculate_c1->setText(QString::number(recalculos));
+
+        }else if(cluster == 2) {
+            ui->label_K5_class0_c2->setText(MMCluster->GetClass(0));
+            ui->label_K5_class1_c2->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K5_class0_c2->setText(QString("%1").arg(purples));
+            ui->lineEdit_K5_class1_c2->setText(QString("%1").arg(reds));
+            ui->lineEdit_K5_rate_c2->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K5_recalculate_c2->setText(QString::number(recalculos));
+
+        }else if(cluster == 3) {
+            ui->label_K5_class0_c3->setText(MMCluster->GetClass(0));
+            ui->label_K5_class1_c3->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K5_class0_c3->setText(QString("%1").arg(purples));
+            ui->lineEdit_K5_class1_c3->setText(QString("%1").arg(reds));
+            ui->lineEdit_K5_rate_c3->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K5_recalculate_c3->setText(QString::number(recalculos));
+
+        }else if(cluster == 4) {
+            ui->label_K5_class0_c4->setText(MMCluster->GetClass(0));
+            ui->label_K5_class1_c4->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K5_class0_c4->setText(QString("%1").arg(purples));
+            ui->lineEdit_K5_class1_c4->setText(QString("%1").arg(reds));
+            ui->lineEdit_K5_rate_c4->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K5_recalculate_c4->setText(QString::number(recalculos));
+
+        }
+    }else if(knum == 6) {
+        // K==3 graphic view objects
+        if(cluster == 0){
+            ui->label_K6_class0_c0->setText(MMCluster->GetClass(0));
+            ui->label_K6_class1_c0->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K6_class0_c0->setText(QString("%1").arg(purples));
+            ui->lineEdit_K6_class1_c0->setText(QString("%1").arg(reds));
+            ui->lineEdit_K6_rate_c0->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K6_recalculate_c0->setText(QString::number(recalculos));
+
+        }else if(cluster == 1) {
+            ui->label_K6_class0_c1->setText(MMCluster->GetClass(0));
+            ui->label_K6_class1_c1->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K6_class0_c1->setText(QString("%1").arg(purples));
+            ui->lineEdit_K6_class1_c1->setText(QString("%1").arg(reds));
+            ui->lineEdit_K6_rate_c1->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K6_recalculate_c1->setText(QString::number(recalculos));
+
+        }else if(cluster == 2) {
+            ui->label_K6_class0_c2->setText(MMCluster->GetClass(0));
+            ui->label_K6_class1_c2->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K6_class0_c2->setText(QString("%1").arg(purples));
+            ui->lineEdit_K6_class1_c2->setText(QString("%1").arg(reds));
+            ui->lineEdit_K6_rate_c2->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K6_recalculate_c2->setText(QString::number(recalculos));
+
+        }else if(cluster == 3) {
+            ui->label_K6_class0_c3->setText(MMCluster->GetClass(0));
+            ui->label_K6_class1_c3->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K6_class0_c3->setText(QString("%1").arg(purples));
+            ui->lineEdit_K6_class1_c3->setText(QString("%1").arg(reds));
+            ui->lineEdit_K6_rate_c3->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K6_recalculate_c3->setText(QString::number(recalculos));
+
+        }else if(cluster == 4) {
+            ui->label_K6_class0_c4->setText(MMCluster->GetClass(0));
+            ui->label_K6_class1_c4->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K6_class0_c4->setText(QString("%1").arg(purples));
+            ui->lineEdit_K6_class1_c4->setText(QString("%1").arg(reds));
+            ui->lineEdit_K6_rate_c4->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K6_recalculate_c4->setText(QString::number(recalculos));
+
+        }else if(cluster == 5) {
+            ui->label_K6_class0_c5->setText(MMCluster->GetClass(0));
+            ui->label_K6_class1_c5->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K6_class0_c5->setText(QString("%1").arg(purples));
+            ui->lineEdit_K6_class1_c5->setText(QString("%1").arg(reds));
+            ui->lineEdit_K6_rate_c5->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K6_recalculate_c5->setText(QString::number(recalculos));
+
+        }
+    }else if(knum == 7) {
+        // K==3 graphic view objects
+        if(cluster == 0){
+            ui->label_K7_class0_c0->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c0->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c0->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c0->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c0->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c0->setText(QString::number(recalculos));
+
+        }else if(cluster == 1) {
+            ui->label_K7_class0_c1->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c1->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c1->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c1->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c1->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c1->setText(QString::number(recalculos));
+
+        }else if(cluster == 2) {
+            ui->label_K7_class0_c2->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c2->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c2->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c2->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c2->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c2->setText(QString::number(recalculos));
+
+        }else if(cluster == 3) {
+            ui->label_K7_class0_c3->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c3->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c3->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c3->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c3->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c3->setText(QString::number(recalculos));
+
+        }else if(cluster == 4) {
+            ui->label_K7_class0_c4->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c4->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c4->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c4->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c4->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c4->setText(QString::number(recalculos));
+
+        }else if(cluster == 5) {
+            ui->label_K7_class0_c5->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c5->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c5->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c5->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c5->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c5->setText(QString::number(recalculos));
+
+        }else if(cluster == 6) {
+            ui->label_K7_class0_c6->setText(MMCluster->GetClass(0));
+            ui->label_K7_class1_c6->setText(MMCluster->GetClass(1));
+            ui->lineEdit_K7_class0_c6->setText(QString("%1").arg(purples));
+            ui->lineEdit_K7_class1_c6->setText(QString("%1").arg(reds));
+            ui->lineEdit_K7_rate_c6->setText(QString::number(f, 'f', 2));
+            ui->lineEdit_K7_recalculate_c6->setText(QString::number(recalculos));
+
+        }
+    }
+}
+
+
+
+//+-------------------------------------------------------------------------------------
+// Funcion auxiliar a LoadSolutionData() que calcula el porcentaje que se ha de mostrar
+// en los campos adjuntos a cada Graphic View.
+//+-------------------------------------------------------------------------------------
+float MarsMinerMainWin::getRate(int numReds, int numPurples) {
+    float value = 0;
+    float total = numReds + numPurples;
+    if(numReds == 0 || numPurples == 0) return 100;
+    if(numReds>numPurples){
+        value = ((float)numReds)/total*100;
+        //qDebug() << "value " << value << Qt::endl;;
+        return value; //((float)numPurples/(float)numReds)*100;
+    }else{
+        value = ((float)numPurples)/total*100;
+        //qDebug() << "value " << value << Qt::endl;;
+        return value; //((float)numReds/(float)numPurples)*100;
+    }
+}
+
+
+
+//+-------------------------------------------------------------------------------------
+// SLOT's para el Menu de Configuration->Clustering de la barra de menú principal.
+//+-------------------------------------------------------------------------------------
+void MarsMinerMainWin::Ellipse20(void) {
+    ELLIPSE_SIZE = 20;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Ellipse40(void) {
+    ELLIPSE_SIZE = 40;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Ellipse60(void) {
+    ELLIPSE_SIZE = 60;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Ellipse80(void) {
+    ELLIPSE_SIZE = 80;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Ellipse100(void) {
+    ELLIPSE_SIZE = 100;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Scale100(void) {
+    DISTANCE_SCALE = 100;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Scale200(void) {
+    DISTANCE_SCALE = 200;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Scale300(void) {
+    DISTANCE_SCALE = 300;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Scale400(void) {
+    DISTANCE_SCALE = 400;
+    DrawSolutions();
+}
+void MarsMinerMainWin::Scale500(void) {
+    DISTANCE_SCALE = 500;
+    DrawSolutions();
+}
+
+void MarsMinerMainWin::dialChange(int dial) {
+    double value = 0;
+    value = (double)dial/ui->dial_distance->maximum();
+    RECALCUL_CENTROID_VALUE = value;    // Guardo nuevo valor
+    ui->doubleSpinBox_distance->setValue(value);
+}
+void MarsMinerMainWin::spinChange(double spin) {
+    int value = 0;
+    value = (int)(spin*ui->dial_distance->maximum());
+    RECALCUL_CENTROID_VALUE = spin;     // Guardo nuevo valor
+    ui->dial_distance->setValue(value);
+}
+
+
+//+-------------------------------------------------------------------------------------
+//+-------------------------------------------------------------------------------------
+// end. hidalgoss, Barcelona 16 de Diciembre de 2012.
+//+-------------------------------------------------------------------------------------
+//+-------------------------------------------------------------------------------------
 
 
 
@@ -1305,6 +2103,59 @@ void MarsMinerMainWin::loadDistanceInTableViewTEST(void){
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+/*scene = new QGraphicsScene;
+//scene->setSceneRect(0,0,790,290);
+QGraphicsView *m_graphView = ui->graphicsView_Cluster1;
+//m_graphView->setFixedSize(800, 300);
+m_graphView->setScene(scene);
+scene->addLine(0, 250, 700, 250, QPen(QBrush(Qt::black),1));
+scene->addEllipse(100, 100, 10, 10, QPen(Qt::blue,4,Qt::SolidLine), QBrush(Qt::black));
+m_graphView->show();*/
+
+
+/*//F(x) Distancia COPIADA DE K-NN
+  // Empiezo desde la 2 ya que en 0 y 1 estan ID y Date. Ultimo Class tampoco.
+  for(col=2, dDistancia=0; col < (iTotalAttributes - 1); col++){
+      // Cogemos el máximo Max de los dos datasets.
+      if(MMsuspects->GetAttributes()->GetAttributeMaxValue(col) >
+              MMdataset->GetAttributes()->GetAttributeMaxValue(col))
+          fMax = MMsuspects->GetAttributes()->GetAttributeMaxValue(col);
+      else
+          fMax = MMdataset->GetAttributes()->GetAttributeMaxValue(col);
+      // Cogemos el mínimo Min de los dos datasets
+      if(MMsuspects->GetAttributes()->GetAttributeMinValue(col) <
+              MMdataset->GetAttributes()->GetAttributeMinValue(col))
+          fMin = MMsuspects->GetAttributes()->GetAttributeMinValue(col);
+      else
+          fMin = MMdataset->GetAttributes()->GetAttributeMinValue(col);
+      // Calculo de la distancia entre individuos, para el attribute #col.
+      if(!strcmp(MMsuspects->GetAttributes()->GetAttribute(col)->acType,
+                 (char *)qPrintable("real"))){
+          dDistancia += distanceNormal(MMsuspects->DataSetGetRow(filSu)[col],
+                                       MMdataset->DataSetGetRow(filDs)[col],
+                                       fMax, fMin);
+      }
+  }// Fin cols. Fin individuo.
+
+  // Miro si distancia de individuo hay que añadirla entre los K individuos.
+  dDistancia = qSqrt(dDistancia);
+  // Si este individuo del training se parece, guardo su distancia y clase.
+  feasibleDistance(MMdistances, MMclass, filSu,
+                   MMdataset->DataSetGetRow(filDs)[CLASS_COLUMN],
+                   dDistancia);
+//FIN   F(x) Distancia COPIADA DE K-NN*/
 
 
 

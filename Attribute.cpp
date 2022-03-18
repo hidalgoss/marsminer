@@ -11,13 +11,7 @@
 // constructor xdefecto
 //-----------------------------------------------------------------------------------
 clsAttribute::clsAttribute(void){
-    // Inic array de structs attributes.
-    /*for(int i = 0; i < MAX_ATTRIBUTES; i++){
-        asAttributes[i].acName[0] = '\0';
-        asAttributes[i].acType[0] = '\0';
-    }*/
-    this->asAttributes = new sAttribute[MAX_ATTRIBUTES];
-    // Inic el resto.
+    this->asAttributes = new sAttribute[MAX_ATTRIBUTES];    
     SetAttributesTotal(0);   
 }
 
@@ -43,28 +37,14 @@ clsAttribute::clsAttribute(const clsAttribute &m){
                      m.asAttributes[i].fMaxValue, m.asAttributes[i].fMinValue, i);
     }
 }
-/*
-clsAttribute::clsAttribute(const clsAttribute *m){
-    //SetAttributesTotal(m.GetAttributesTotal());
-    this->iAttributesTotal = m->iAttributesTotal;
-    this->asAttributes = new sAttribute[this->iAttributesTotal];
-    for(int i = 0; i < this->GetAttributesTotal(); i++){
-        SetAttribute(m->asAttributes[i].acName, m->asAttributes[i].acType,
-                     m->asAttributes[i].fMaxValue, m->asAttributes[i].fMinValue, i);
-    }
-}*/
+
 
 //-----------------------------------------------------------------------------------
 // destructor
 //-----------------------------------------------------------------------------------
 clsAttribute::~clsAttribute(void){
-    /*if(asAttributes != NULL){
-        delete[] asAttributes;
-    }*/
     asAttributes = NULL;
     SetAttributesTotal(0);
-    //SetAttributeMaxValue(0);
-    //SetAttributeMinValue(0);
 }
 
 

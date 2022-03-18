@@ -14,6 +14,7 @@
 #include <iomanip>			// Para el setprecision()
 #include <vector>			// Para uso de resize()
 #include "Attribute.h"
+#include "Cluster.h"        // Mi clase Cluster
 
 // valor con el que marcamos los campos a pre-tratar.
 #define FAKE_VALUE  -100.0
@@ -27,13 +28,12 @@ using namespace std;		// std::cout por tanto, agrego este namespace.
 //+-------------------------------------------------------------------------------------
 class clsMarsMiner{   
 private:
-    // Atributos privados.
-    // ...
-    //clsAttribute *Attributes;
     clsAttribute *Attributes;
     float		**fDataSet;
     int			iDataSetTotalRegisters;
     bool        PRE_PROCESO;
+    // NUEVO
+    char        acClass[2][200]; // Guardo la representación del 0 y del 1 para la class.
 
 public:
 	// Constructor xdefecto.
@@ -47,22 +47,17 @@ public:
     void		SetDataSetToNull(void);
 	void		SetDataSetTotalRegisters(int iTotal);
     void        SetPreProceso(bool bPreprocess);
+    int         SetClass(int iType, char *acClass);
 
-
-	// ...
 	// GetThings
     float		**GetDataSet(void);
 	int			GetDataSetTotalRegisters(void);
     clsAttribute *GetAttributes(void);
     bool        GetPreProceso(void);
+    char        *GetClass(int iType);
 
-	// ...
-	// Sobrecarga de operadores
-	// clsMarsMiner operator+ (const clsMarsMiner&);
-    // ...
+    // Sobrecarga de operadores
     clsMarsMiner &operator= (const clsMarsMiner & m);
-
-	
 
 	// Funciones publicas
 	int			SubString(char *so, char *sd, char cId, int n);

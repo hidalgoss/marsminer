@@ -4,7 +4,7 @@
 //-----------------------------------------------------------------------------------
 #define _CRT_SECURE_NO_WARNINGS
 #include "MarsMiner.h"
-
+#include <QDebug>
 
 // Constructor xdefecto
 //+-------------------------------------------------------------------------------------
@@ -45,6 +45,7 @@ clsMarsMiner::clsMarsMiner(const clsMarsMiner & m){
     Attributes->SetAttributesTotal(m.Attributes->GetAttributesTotal());
 
     fDataSet = NULL;
+    // OJO: TotalRegisters no arranca inicializado. Lo inicializo ahora.
     SetDataSetTotalRegisters(0);
     for(j = 0; j < m.iDataSetTotalRegisters; j++){
 		fpNewRow = DataSetGetNewRow();
@@ -106,6 +107,16 @@ void clsMarsMiner::SetPreProceso(bool bPreprocess){
 }
 
 
+//+-------------------------------------------------------------------------------------
+// Establece la cadena de la clase para el tipo indicado (0 o 1).
+//+-------------------------------------------------------------------------------------
+int clsMarsMiner::SetClass(int iType, char *acClass) {
+    if(!acClass)
+        return 0;       // Devuelvo error.
+    strcpy(this->acClass[iType], acClass);
+    return 1;           //
+}
+
 // GetThings
 //+-------------------------------------------------------------------------------------
 
@@ -125,6 +136,9 @@ int clsMarsMiner::GetDataSetTotalRegisters(void){
 }
 
 
+//+-------------------------------------------------------------------------------------
+//
+//+-------------------------------------------------------------------------------------
 clsAttribute *clsMarsMiner::GetAttributes(void){
     return Attributes;
 }
@@ -135,6 +149,14 @@ clsAttribute *clsMarsMiner::GetAttributes(void){
 //+-------------------------------------------------------------------------------------
 bool clsMarsMiner::GetPreProceso(void){
     return PRE_PROCESO;
+}
+
+
+//+-------------------------------------------------------------------------------------
+// Obtiene la clase asociada al tipo especificado (0 o 1).
+//+-------------------------------------------------------------------------------------
+char *clsMarsMiner::GetClass(int iType) {
+    return this->acClass[iType];
 }
 
 
@@ -230,9 +252,10 @@ bool clsMarsMiner::DataSetAddRow(float **fpRow){
     //float *fNewRow;
     //int iTotalRegs = GetDataSetTotalRegisters();
 
-    int a = GetDataSetTotalRegisters();
-    if(fDataSet == NULL)
-        a = GetDataSetTotalRegisters();
+//    int a = GetDataSetTotalRegisters();
+//    if(fDataSet == NULL){
+//        a = GetDataSetTotalRegisters();
+//    }
 	if((fDataSet = (float **)realloc(fDataSet, (GetDataSetTotalRegisters() + 1) *
 		sizeof(float *))) == NULL)
 			return false;
@@ -244,6 +267,7 @@ bool clsMarsMiner::DataSetAddRow(float **fpRow){
 
 
 //+-------------------------------------------------------------------------------------
+//
 //+-------------------------------------------------------------------------------------
 void clsMarsMiner::DataSetSetRowValue(int iRow, int iAttribute, float fValue){
     fDataSet[iRow][iAttribute] = fValue;
@@ -260,6 +284,7 @@ void clsMarsMiner::DataSetInicRowNum(int iRow, float fValue){
 }
 
 
+
 //+-------------------------------------------------------------------------------------
 // Inicializa la row facilitada al valor indicado.
 // Pre: La row facilitada ya debe haber sido creada en memoria  mediante la funcion
@@ -269,6 +294,8 @@ void clsMarsMiner::DataSetInicRow(float *fRow, float fValue){
     for(int col=0; col < GetAttributes()->GetAttributesTotal(); col++)
         fRow[col] = fValue;
 }
+
+
 
 //+-------------------------------------------------------------------------------------
 // Devuelve el Maximo valor del attibute de la posicion iPos en todo el DataSet.
@@ -287,6 +314,7 @@ float clsMarsMiner::DataSetGetAttributeMax(int iPos){
 }
 
 
+
 //+-------------------------------------------------------------------------------------
 // Devuelve el Minimo valor del attibute de la posicion iPos en todo el DataSet.
 // Devuelve -1 en caso de que se encuentre vacio el DataSet.
@@ -302,6 +330,8 @@ float clsMarsMiner::DataSetGetAttributeMin(int iPos){
     if(iMin == MAX_ATTRIBUTE_VALUE) return -1;
     else return iMin;
 }
+
+
 
 //+-------------------------------------------------------------------------------------
 // Devuelve la media de todo el dataset para una columna/attribute dada/o.
@@ -323,6 +353,8 @@ float clsMarsMiner::DataSetAvgAttribute(int iCol){
     else
         return (fAverage/(GetDataSetTotalRegisters() - iFakes));
 }
+
+
 
 //+-------------------------------------------------------------------------------------
 //	f(x) PUBLICA int SubString(char *so, char *sd, char i, int n);
@@ -356,6 +388,26 @@ int clsMarsMiner::SubString(char *so, char *sd, char cId, int n){
 	else return 0;
 	return 1;
 }//Fin SubString()
+
+
+
+//+-------------------------------------------------------------------------
+//	EliminaEsp
+//	Precondicion:	La cadena destino que recibe debe poder albergar la
+//	longitud de la cadena resultante. Como maximo sera de longitud igual
+//	a la de cadena origen,
+//
+//	Elimina todos los espacios que encuentra de la cadena origen dejando
+//	la cadena resultante en la cadena destino que recibe como parametro.
+//	Devuelve puntero a cadena destino por si se quiere utilizar.
+//+-------------------------------------------------------------------------
+char *EliminaEsp(char *sO, char *sD){
+    for(;*sO;sO++){
+        if(*sO!=' '){*sD=*sO; sD++;}
+    }
+    *sD='\0';
+    return sD;
+}//Fin EliminaEsp()
 
 
 
@@ -404,10 +456,12 @@ int clsMarsMiner::fSubString(FILE *so, char *sd, char cId, int n){
 bool clsMarsMiner::BuildDataset(char *cFilename){
 	FILE *pFile = NULL;
 	char acData[200];
-    char acAux[100], acPreproceso[100];
-    float valor = 0.0, *fpNewRow = NULL, fAverage = 0.0;
+    char acAux[100]; //, acPreproceso[100];
+    float valor = 0.0, *fpNewRow = NULL; //, fAverage = 0.0
     int iNumAttributes = 0, i = 0, col, fil;
     //int test = 0; // test
+    char acZero[200], acUno[200], acCad[200]; // NUEVA SSS
+    //bool creado = false;
 
 	if(!(pFile = fopen(cFilename, "r")))
 		return false;
@@ -427,18 +481,32 @@ bool clsMarsMiner::BuildDataset(char *cFilename){
 		if(!strcmp(acData, "@attribute")){
 			i = 0;			
 		}
-		if(i == 1){		
+        if(i == 1){
 			// guardo nombre attribute
 			strcpy(acAux, acData);			
 		}else if(i == 2){
-			if(!strcmp(acData, "{0,"))
-				strcpy(acData, "bin");
+            //if(!strcmp(acData, "{0,"))
+            if(acData[0] == '{'){
+                //  bin detectado. recojo valores.
+                SubString(acData, acCad, ',', 0);
+                SubString(acCad, acZero, '{', 1);                
+                strcpy(this->acClass[0], acZero);
+                qDebug() << "*********" << acZero << "*a**" <<
+                         this->acClass[0] << "****" << Qt::endl; // TEST
+                strcpy(acData, "bin");
+            }
 			// guardo nombre y type de attribute en posicion iNumAttributes.
             Attributes->SetAttribute(acAux, acData, 0, 0, iNumAttributes++);
 			// incremento el numero de attributes que podrá gestionar.
             Attributes->SetAttributesTotal(Attributes->GetAttributesTotal() + 1);
             //test = Attributes->GetAttributesTotal(); // test
-		}
+        }else if(i == 3){
+            SubString(acData, acUno, '}', 0);            
+            strcpy(this->acClass[1], acUno);
+            qDebug() << "*********" << acUno  <<  "*b**" <<
+                        this->acClass[1] << "****" << Qt::endl; // TEST
+            //creado = true;
+        }
 		i++;		
 	}
 	// test
@@ -468,7 +536,19 @@ bool clsMarsMiner::BuildDataset(char *cFilename){
                     }
                 }else{
                     // no compruebo los interrogantes.
-                    fpNewRow[col] = atof(acAux);
+                    //fpNewRow[col] = atof(acAux);
+                    if(col == Attributes->GetAttributesTotal()-1) {
+                        if(!strcmp(this->acClass[0], acAux)) {
+                            // class bin 0
+                            fpNewRow[col] = 0;
+                        }else if(!strcmp(this->acClass[1], acAux)) {
+                            // class bin 1
+                            fpNewRow[col] = 1;
+                        }
+                    }else{
+                        // no compruebo los interrogantes.
+                        fpNewRow[col] = atof(acAux);
+                    }
                 }
 			}
             // guardo row solicitada y cargada en DataSet.
