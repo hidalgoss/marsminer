@@ -1,0 +1,13 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+	<file>images/MarsMiner.ico</file>
+	<file>images/MarsMinerColor.ico</file>
+	<file>images/distance-horizontal.png</file>
+	<file>images/clear-list.png</file>
+	<file>images/backtracking.png</file>
+	<file>images/greedy.png</file>
+	<file>images/normal.png</file>
+	<file>images/prefixed.png</file>
+</qresource>
+</RCC>
+

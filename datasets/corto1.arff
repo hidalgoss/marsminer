@@ -1,0 +1,12 @@
+@relation checkerboard
+@attribute ID real
+@attribute Footsize real
+@attribute Height real
+@attribute Weight real
+@attribute class {0, 1}
+@data
+28,10.5336485,10.069972,18.906818,0
+29,4.8624935,97.33041,18.509966,0
+30,11.940287,43.02256,18.379755,1
+31,18.78518,20.375813,16.568872,1
+32,4.7905755,12.193209,16.6902,1

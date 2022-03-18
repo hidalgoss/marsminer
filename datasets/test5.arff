@@ -1,0 +1,17 @@
+@relation checkerboard
+@attribute ID real
+@attribute DateStored real
+@attribute Footsize real
+@attribute Height real
+@attribute Weight real
+@attribute Tailsize real
+@attribute AntenasLength real
+@attribute BrainVolume real
+@attribute NumberOfTeeth real
+@attribute class {0, 1}
+@data
+28,110811,10.5336485,10.069972,18.906818,6.1815004,2.5917814,41.781025,11,0
+29,110811,4.8624935,97.33041,18.509966,1.1003906,0.50819933,48.16894,12,0
+30,110811,11.940287,43.02256,18.379755,0.7473117,4.274639,44.62465,37,1
+31,110811,18.78518,20.375813,16.568872,9.907625,1.4164128,53.58875,36,1
+32,110811,4.7905755,12.193209,16.6902,14.210623,1.9331241,49.277004,37,1
